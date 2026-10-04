@@ -1,0 +1,154 @@
+@startuml HireMe_Architecture
+!theme plain
+skinparam backgroundColor #1a1a2e
+skinparam defaultFontColor #e0e0e0
+skinparam defaultFontName "JetBrains Mono"
+skinparam ArrowColor #7c3aed
+skinparam BorderColor #4a4a6a
+
+skinparam package {
+  BackgroundColor #16213e
+  BorderColor #7c3aed
+  FontColor #c4b5fd
+}
+
+skinparam component {
+  BackgroundColor #0f3460
+  BorderColor #7c3aed
+  FontColor #e0e0e0
+}
+
+skinparam database {
+  BackgroundColor #0d1b2a
+  BorderColor #10b981
+  FontColor #6ee7b7
+}
+
+skinparam actor {
+  BackgroundColor #1e1e3a
+  BorderColor #7c3aed
+  FontColor #c4b5fd
+}
+
+skinparam note {
+  BackgroundColor #1a1040
+  BorderColor #6d28d9
+  FontColor #d8b4fe
+}
+
+title HireMe — Full System Architecture
+
+' ── Actors ─────────────────────────────────────────────────────
+actor "User\n(Browser)" as USER #8b5cf6
+
+' ── Frontend ─────────────────────────────────────────────────────
+package "Next.js Frontend  (port 3000)" as FE {
+  component "dashboard/page.tsx\n[Job Feed + Filters]" as DASH
+  component "lib/api.ts\n[HTTP Client]" as APICLIENT
+  component "lib/matchScore.ts\n[Client-side Scoring]" as SCORE
+  component "context/\nPreferencesContext\n[localStorage]" as CTX
+  component "components/dashboard/\nJobCard · FilterSidebar\nJobDetailsSheet" as UICOMP
+}
+
+' ── Backend ─────────────────────────────────────────────────────
+package "FastAPI Backend  (port 8000)" as BE {
+  component "main.py\n[REST Endpoints]" as MAIN
+  component "worker.py\nperiodic_worker()\nscrape_all()" as WORKER
+  component "filters.py\napply_filters()\nsort_jobs()\npaginate_cursor()" as FILTERS
+  database "JobStore\n(in-memory dict)" as STORE
+}
+
+' ── Scraper Layer ─────────────────────────────────────────────────
+package "Scraper Registry  (scrapers/)" as SCRAPERS {
+  component "BaseScraper ABC\n+ SearchFilters" as BASE
+  component "AmazonJobsScraper\ncurl_cffi chrome120" as AMAZON
+  component "[Future]\nLinkedIn · GH · Lever\nIndeed · Workday" as FUTURE
+}
+
+' ── Link Management ─────────────────────────────────────────────
+package "Site Registry  (sites/)" as SITES {
+  database "links.txt\n[Active sites]" as LINKS
+  database "new_links.txt\n[Pending onboarding]" as NEWLINKS
+  component "scraper_onboarding_\nprompt.md\n[LLM System Prompt]" as ONBOARD
+}
+
+' ── External ─────────────────────────────────────────────────────
+package "External Career Sites" as EXT {
+  component "amazon.jobs\n/en-gb/search.json" as AMZWEB
+  component "LinkedIn Jobs API" as LIWEB
+  component "ATS Boards\n(Greenhouse/Lever)" as ATSWEB
+}
+
+' ── Flows ─────────────────────────────────────────────────────
+
+' User → Frontend
+USER --> DASH : "Browses dashboard\n+ applies filters"
+DASH --> CTX  : "reads preferences"
+DASH --> APICLIENT : "fetchJobs(filters)"
+APICLIENT --> SCORE : "score jobs"
+APICLIENT --> UICOMP : "renders JobCards"
+
+' Frontend → Backend
+APICLIENT -down-> MAIN : "GET /api/v1/jobs\n?live_scrape=true\n&q=...&work_setup=..."
+
+' Backend routing
+MAIN -right-> FILTERS : "apply_filters()\nsort_jobs()"
+MAIN -down-> WORKER : "scrape_all(filters)\n[on live_scrape=true]"
+MAIN <--> STORE : "read / write"
+FILTERS <--> STORE : "get_all()"
+WORKER --> STORE : "upsert(jobs)\n+deduplication"
+
+' Periodic worker
+WORKER -left-> LINKS : "read_links()"
+
+' Scraper dispatch
+WORKER -down-> BASE : "get_scraper_for_url(url)"
+BASE <|-- AMAZON
+BASE <|-- FUTURE
+
+' External calls
+AMAZON -down-> AMZWEB : "GET /en-gb/search.json\nX-CSRF-Token\ncurl_cffi chrome120\n[TLS fingerprint spoof]"
+FUTURE -down-> LIWEB
+FUTURE -down-> ATSWEB
+
+' Onboarding
+NEWLINKS --> ONBOARD : "URL needs\nadapter"
+ONBOARD -right-> AMAZON : "LLM writes\nBaseScraper impl"
+ONBOARD ..> LINKS : "URL moved\nafter test ✓"
+
+' ── Notes ─────────────────────────────────────────────────────
+
+note right of AMAZON
+  **WAF Bypass Technique**
+  1. GET /en-gb/search
+     → session cookies
+     → CSRF token extraction
+     → category map from React props
+  2. GET /en-gb/search.json
+     Headers: X-CSRF-Token, X-Requested-With
+     Params: job_category[], country[], offset
+end note
+
+note right of STORE
+  **Deduplication**
+  Key = normalize(company) + normalize(title)
+  Window = 48 hours
+  On match: merge sources[] arrays
+end note
+
+note bottom of WORKER
+  **Periodic Worker**
+  Runs every 300 seconds (5 min)
+  Also triggers immediately on
+  live_scrape=true from API
+end note
+
+note left of CTX
+  **User Profile**
+  Stored in localStorage (no auth yet)
+  Preferences: roles, skills, salary,
+  work setup, experience level
+  Match score computed client-side
+end note
+
+@enduml
