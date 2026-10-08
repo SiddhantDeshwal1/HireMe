@@ -1,39 +1,46 @@
 # HireMe — System Architecture
 
-> **Version:** 1.0.0 · **Status:** Active Development · **Last Updated:** 2026-10-05
+> **Version:** 2.0.0 · **Status:** Active Development · **Last Updated:** 2026-10-08  
+> **Clean Diagram Reference:** See [ARCHITECTURE_DIAGRAM.md](ARCHITECTURE_DIAGRAM.md) for full Mermaid sequence & entity diagrams.
 
 ---
 
 ## Overview
 
-HireMe is a personalized job aggregator. It scrapes job listings from multiple company career sites and APIs, normalizes them into a unified data model, deduplicates cross-platform postings, and serves them to a Next.js dashboard through a FastAPI backend.
+HireMe is a personalized, high-performance job aggregator that crawls career portals directly at the source (Amazon, Google, Microsoft, Meta, Netflix, Uber, Rubrik). It normalizes listings into a unified data model, deduplicates cross-platform postings across a 48-hour window, stores them in SQLite (WAL mode) with multi-tier in-memory TTL caching, and delivers curated roles to a Next.js 16 frontend with ATS resume analysis and application history tracking.
 
 ```
-                ┌─────────────────────────────────────┐
-                │         Next.js Frontend              │
-                │  (Dashboard · Onboarding · Saved)    │
-                └──────────────┬──────────────────────┘
-                               │  HTTP (localhost:8000)
-                ┌──────────────▼──────────────────────┐
-                │          FastAPI Backend              │
-                │       /api/v1/jobs  (main)           │
-                │       /api/health   (telemetry)      │
-                └──────┬────────────────────┬──────────┘
-                       │                    │
-         ┌─────────────▼──────┐  ┌──────────▼────────────┐
-         │   In-Memory Store   │  │  Background Worker     │
-         │  (JobStore dict)   │  │  (periodic_worker)     │
-         └─────────────────────┘  └──────────┬─────────────┘
+                ┌─────────────────────────────────────────────────────────┐
+                │                    Next.js Frontend                     │
+                │    (Dashboard · History · Admin · Profile · Saved)      │
+                └────────────────────────────┬────────────────────────────┘
+                                             │ HTTP REST (localhost:8000)
+                ┌────────────────────────────▼────────────────────────────┐
+                │                     FastAPI Backend                     │
+                │        /api/v1/jobs               /api/health           │
+                │        /api/v1/user/applications /api/v1/resume/upload │
+                │        /api/v1/admin/scraper/*    /api/v1/user/profile  │
+                └───────┬────────────────────┬────────────────────┬───────┘
+                        │                    │                    │
+          ┌─────────────▼──────┐  ┌──────────▼────────────┐  ┌────▼─────────────────┐
+          │   In-Memory Cache  │  │  SQLite Database (WAL)│  │ PyPDF Resume Parser  │
+          │  (cache.py TTL)    │  │ (jobs, apps, profile) │  │  (resume_analyzer)   │
+          └────────────────────┘  └──────────▲────────────┘  └──────────────────────┘
+                                             │ upsert / dedup
+                                  ┌──────────┴────────────┐
+                                  │   Background Worker   │
+                                  │  (periodic_worker)    │
+                                  └──────────┬────────────┘
                                              │ every 5 min
                               ┌──────────────▼──────────────┐
-                              │       Scraper Registry       │
-                              │  (scrapers/__init__.py)      │
-                              └──┬──────────────────────┬────┘
-                                 │                      │
-                    ┌────────────▼──────┐    ┌──────────▼──────────┐
-                    │  Amazon Scraper   │    │   Future Scrapers    │
-                    │ (curl_cffi TLS)   │    │  (LinkedIn, GH, etc) │
-                    └───────────────────┘    └─────────────────────┘
+                              │       Scraper Registry      │
+                              │    (scrapers/__init__.py)   │
+                              └──┬──────┬──────┬──────┬─────┘
+                                 │      │      │      │
+            ┌────────────────────▼┐ ┌───▼──────▼─┐ ┌──▼───────────────────┐
+            │ Amazon Jobs Scraper │ │ Google/Meta│ │ Netflix, Uber, Rubrik│
+            │  (curl_cffi chrome) │ │  Microsoft │ │ (curl_cffi chrome)   │
+            └─────────────────────┘ └────────────┘ └───────────────────────┘
 ```
 
 ---
@@ -42,44 +49,60 @@ HireMe is a personalized job aggregator. It scrapes job listings from multiple c
 
 ```
 /run/media/banana/Alpha/project/HireMe/
-├── frontend/                       # Next.js 16 App Router
+├── RULES.md                        # Project engineering rules and doc standards
+├── PROGRESS.md                     # Roadmap, phase tracking & milestones
+├── README.md                       # Repository overview and setup guide
+├── start.sh                        # Unified dev starter script
+│
+├── frontend/                       # Next.js 16 App Router (React 19)
 │   └── src/
 │       ├── app/
-│       │   ├── dashboard/page.tsx  # Main job feed + filters
-│       │   ├── onboarding/page.tsx # User preference setup
-│       │   └── saved/page.tsx      # Bookmarked jobs
-│       ├── components/dashboard/   # JobCard, FilterSidebar, etc.
-│       ├── context/                # PreferencesContext (localStorage)
-│       ├── lib/
-│       │   ├── api.ts              # HTTP client → FastAPI backend
-│       │   ├── matchScore.ts       # Client-side match scoring
-│       │   └── deduplication.ts    # Client-side dedup (fallback)
-│       └── types/job.ts            # TypeScript interfaces
+│       │   ├── page.tsx            # Landing page
+│       │   ├── dashboard/page.tsx  # Main job feed, company filter & search
+│       │   ├── admin/page.tsx      # Scraper telemetry & crawler control
+│       │   ├── history/page.tsx    # Application tracking & status history
+│       │   ├── profile/page.tsx    # Profile details, links, resume upload
+│       │   ├── onboarding/page.tsx # Candidate preference survey
+│       │   ├── saved/page.tsx      # Bookmarked jobs
+│       │   └── jobs/[id]/page.tsx  # Dedicated job view
+│       ├── components/             # Reusable UI & dashboard components
+│       ├── context/                # PreferencesContext & Auth
+│       ├── lib/                    # api.ts, matchScore.ts, companyLogo.ts
+│       └── types/job.ts            # TypeScript strict data contracts
 │
-├── backend/                        # FastAPI + Python
-│   ├── main.py                     # FastAPI app + all endpoints
-│   ├── worker.py                   # Background periodic scraper
-│   ├── filters.py                  # Filter + sort + pagination logic
-│   ├── requirements.txt
-│   ├── models/
-│   │   └── job.py                  # NormalizedJob dataclass
-│   ├── scrapers/
-│   │   ├── __init__.py             # ScraperRegistry
-│   │   ├── base.py                 # BaseScraper ABC + SearchFilters
-│   │   └── amazon_scraper.py       # Amazon Jobs adapter
+├── backend/                        # FastAPI REST API & Ingestion Engine
+│   ├── main.py                     # API router & endpoint definitions
+│   ├── database.py                 # SQLite schema, indexing & dedup
+│   ├── worker.py                   # Background scraper daemon & telemetry
+│   ├── filters.py                  # Cursor-based pagination & query filtering
+│   ├── cache.py                    # In-memory query cache with TTL
+│   ├── resume_analyzer.py          # PyPDF extraction & skill analysis
+│   ├── requirements.txt            # Python dependencies
+│   ├── models/job.py               # NormalizedJob dataclass
+│   ├── scrapers/                   # Modular company scrapers (BaseScraper)
+│   │   ├── base.py                 # Abstract base class & search filters
+│   │   ├── amazon_scraper.py       # Amazon Jobs adapter (WAF/CSRF)
+│   │   ├── google_scraper.py       # Google Careers adapter
+│   │   ├── microsoft_scraper.py    # Microsoft Careers adapter
+│   │   ├── meta_scraper.py         # Meta Careers adapter
+│   │   ├── netflix_scraper.py      # Netflix Careers adapter
+│   │   ├── uber_scraper.py         # Uber Careers adapter
+│   │   └── rubrik_scraper.py       # Rubrik Careers adapter
+│   ├── media/logos/                # Brand logo assets served via /logos
 │   └── sites/
-│       ├── links.txt               # Active tracked sites
-│       ├── new_links.txt           # Newly added, awaiting onboarding
-│       ├── NOTE.md                 # Developer notes + TODOs
-│       └── (scraper configs here)
+│       ├── links.txt               # Active tracked career URLs
+│       └── new_links.txt           # Pending URL queue
 │
-├── docs/
-│   ├── ARCHITECTURE.md             # System architecture documentation
-│   ├── ARCHITECTURE.puml           # PlantUML diagram
-│   ├── backend_requirements.md     # Frontend-authored API contract spec
-│   └── screenshots/                # Application UI screenshots
-├── README.md                       # Repository overview and setup guide
-└── start.sh                        # Unified dev starter script
+└── docs/                           # Documentation, diagrams & visual assets
+    ├── ARCHITECTURE.md             # In-depth architectural specification
+    ├── ARCHITECTURE_DIAGRAM.md     # Clean Mermaid system architecture diagrams
+    ├── ARCHITECTURE.puml           # PlantUML system architecture diagram
+    ├── screenshots/                # Application UI screenshots
+    └── history/                    # Historical notes & previous iteration files
+        ├── README.md               # Overview of archived assets
+        ├── backend_requirements_v1.md # Initial v1 frontend handoff spec
+        ├── scraper_onboarding_prompt.md # Reverse-engineering LLM prompt
+        └── scraper_pipeline_notes.md # Early scraper notes & TODOs
 ```
 
 ---
@@ -91,8 +114,8 @@ HireMe is a personalized job aggregator. It scrapes job listings from multiple c
 ```
 new_links.txt                         links.txt
 ─────────────                         ─────────
-User adds URL  ──► LLM Onboarding  ──► URL moved here
-                   (scraper_onboarding_prompt.md)
+User adds URL  ──► Reverse Engineer ──► URL moved here
+                   (docs/history/)
                    ↓
                    Scraper adapter written
                    (scrapers/<site>_scraper.py)
@@ -114,32 +137,26 @@ for each URL:
   get_scraper_for_url()  → looks up REGISTRY by hostname
     ↓
   scraper.scrape_jobs(SearchFilters(max_pages=2))
-    ↓ (runs in thread pool, non-blocking)
+    ↓ (runs in thread pool, non-blocking curl_cffi)
   list[NormalizedJob]
     ↓
-  job_store.upsert()     → deduplication (48h window, fuzzy key)
+  upsert_jobs()          → deduplication (48h window, fuzzy key)
     ↓
-  new_count returned
+  cache.invalidate_all()
 ```
 
-### 3. On-Demand Search Flow (user hits Search)
+### 3. Application Tracking Flow
 
 ```
-Frontend: fetchJobs(filters, live_scrape=true)
+User applies on external ATS portal
   ↓
-GET /api/v1/jobs?q=...&live_scrape=true&...
+Frontend prompts "Did you apply?" (AppliedConfirmModal)
   ↓
-scrape_all(SearchFilters from query params)   ← immediate live scrape
+POST /api/v1/user/applications
   ↓
-job_store.get_all()
+Recorded in job_applications SQLite table (status: 'applied')
   ↓
-apply_filters(jobs, filters)
-  ↓
-sort_jobs(filtered, sort_by)
-  ↓
-paginate_cursor(sorted, cursor, limit)
-  ↓
-JSON response → Frontend renders JobCards
+Available at /history with filterable statuses (applied, interviewing, rejected, offered)
 ```
 
 ### 4. Deduplication Strategy
@@ -150,128 +167,20 @@ JSON response → Frontend renders JobCards
 | **Time window** | 48 hours |
 | **On duplicate** | Merge `sources[]` arrays (keeps all origin URLs) |
 | **Canonical URL** | Direct ATS link preferred over aggregator |
-| **Result** | `duplicatesMergedCount` shown in dashboard UI |
-
----
-
-## Scraper Architecture
-
-### BaseScraper Interface
-
-Every scraper adapter must implement:
-
-```python
-class BaseScraper(ABC):
-    site_name: str
-    site_url:  str
-
-    def get_filters(self) -> FilterMap: ...
-    def scrape_jobs(self, filters: SearchFilters) -> list[NormalizedJob]: ...
-```
-
-### Filter Translation (per scraper)
-
-| HireMe Filter | Amazon Param | Future: LinkedIn | Future: GH |
-|---------------|-------------|-----------------|------------|
-| `keyword` | `normalized_keywords` | `keywords` | `q` |
-| `category` | `job_category[]` | N/A | N/A |
-| `country` | `country[]` | `geoId` | N/A |
-| `work_setup` | inferred | `f_WT` | N/A |
-| `date_posted` | `sort=recent` | `f_TPR` | N/A |
-
-### Amazon Scraper — Auth Bypass Detail
-
-Amazon Jobs uses AWS WAF to block non-browser TLS fingerprints and requires a Rails CSRF token:
-
-```
-1. GET https://www.amazon.jobs/en-gb/search
-   → Session cookies set (amazon_jobs_session, __Host-mons-sid)
-   → Extract <meta name="csrf-token" content="..."> from HTML
-   → Extract categories_cms from React props JSON
-
-2. GET https://www.amazon.jobs/en-gb/search.json
-   Headers: X-CSRF-Token, X-Requested-With: XMLHttpRequest
-   Params:  job_category[], country[], result_limit=10, offset=N
-   → Returns JSON: { jobs: [...], hits: N, facets: {...} }
-```
-
-**Key insight:** The correct endpoint is `/en-gb/search.json` — NOT `/api/v1/job_searches` (which always returns 401).
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/health` | Scraper telemetry + job count |
-| `GET` | `/api/v1/jobs` | Paginated filtered job feed |
-| `GET` | `/api/v1/jobs/:id` | Single job detail |
-| `POST` | `/api/v1/jobs/:id/report-dead` | Flag broken listing |
-| `GET` | `/api/v1/user/profile` | User preferences |
-| `PUT` | `/api/v1/user/preferences` | Update preferences |
-| `GET` | `/api/v1/user/saved-jobs` | Bookmarked jobs |
-| `POST` | `/api/v1/user/saved-jobs/:id` | Bookmark a job |
-| `DELETE` | `/api/v1/user/saved-jobs/:id` | Remove bookmark |
-
-### Key Query Params for `GET /api/v1/jobs`
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `q` | string | Full-text keyword |
-| `live_scrape` | bool | Trigger immediate scrape before returning |
-| `category` | string | Job category identifier (e.g. `software-development`) |
-| `country` | string | 3-letter country code (e.g. `USA`) |
-| `work_setup` | string | Comma-sep: `remote,hybrid,on-site` |
-| `job_type` | string | Comma-sep: `full-time,contract,internship` |
-| `experience_level` | string | Comma-sep: `entry,mid,senior,lead` |
-| `date_posted` | string | `24h` / `7d` / `30d` / `all` |
-| `min_salary` | int | Minimum annual salary USD |
-| `sort_by` | string | `relevant` / `newest` / `salary` |
-| `cursor` | string | Pagination cursor (job ID of last seen) |
-| `limit` | int | Page size (default 20, max 50) |
-
----
-
-## Frontend Integration
-
-The frontend `lib/api.ts` calls the FastAPI backend with the `live_scrape=true` flag when filters change, triggering an immediate targeted scrape. On load with no filters, it uses `live_scrape=false` and returns cached results from the last periodic scrape.
-
-```typescript
-// Immediate search: live_scrape=true triggers backend scrape
-const url = buildApiUrl(filters, { live_scrape: hasActiveFilters });
-const response = await fetch(url);
-```
-
-The `matchScore` and `matchReasons` are computed client-side using `lib/matchScore.ts` since user preferences are stored in `localStorage` (no auth system yet).
-
----
-
-## Onboarding a New Career Site
-
-1. Add the career page URL to `backend/sites/new_links.txt`
-2. Use `backend/scraper_onboarding_prompt.md` as the LLM system prompt
-3. LLM analyses the site's network requests, discovers the JSON API
-4. LLM writes `backend/scrapers/<site>_scraper.py` implementing `BaseScraper`
-5. Register in `backend/scrapers/__init__.py` REGISTRY dict
-6. Test: `python -c "from scrapers.<site>_scraper import ...; ..."`
-7. Move URL from `new_links.txt` → `links.txt`
-8. Worker picks it up automatically on the next 5-minute cycle
+| **TTL** | 5 days rolling expiry |
 
 ---
 
 ## Running Locally
 
 ```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Recommended one-command startup:
+./start.sh
 
-# Frontend (separate terminal)
-cd frontend
-pnpm dev
+# Or manual:
+# Backend:
+cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend:
+cd frontend && pnpm dev
 ```
-
-Backend: http://localhost:8000  
-Frontend: http://localhost:3000  
-API Docs: http://localhost:8000/docs  

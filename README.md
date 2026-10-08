@@ -95,10 +95,13 @@ flowchart TD
     Registry -->|Deduplicate & Upsert| DB
 ```
 
-Detailed technical design and data contracts are documented in:
+Detailed technical design, architecture diagrams, rules, and tracking are documented in:
 - [System Architecture](docs/ARCHITECTURE.md)
+- [System Architecture Diagram (Mermaid)](docs/ARCHITECTURE_DIAGRAM.md)
 - [PlantUML Architecture Diagram](docs/ARCHITECTURE.puml)
-- [Backend Requirements & Data Contracts](docs/backend_requirements.md)
+- [Engineering Rules & Conventions](RULES.md)
+- [Project Progress & Roadmap](PROGRESS.md)
+- [Archived Backend Requirements](docs/history/backend_requirements_v1.md)
 
 ---
 
@@ -106,48 +109,56 @@ Detailed technical design and data contracts are documented in:
 
 ```
 HireMe/
-├── backend/                       # FastAPI REST API & Ingestion Pipeline
-│   ├── main.py                    # API router, CORS & endpoint definitions
-│   ├── database.py                # SQLite schema, indexing & deduplication
-│   ├── worker.py                  # Periodic background scraper daemon
-│   ├── filters.py                 # Cursor-based pagination & query filtering
-│   ├── cache.py                   # In-memory query caching layer
-│   ├── resume_analyzer.py         # PyPDF text extraction & skill analysis
-│   ├── requirements.txt           # Python backend dependencies
-│   ├── scrapers/                  # Modular company scrapers
-│   │   ├── base.py                # Base scraper interface & search filters
-│   │   ├── amazon_scraper.py      # Amazon Jobs adapter
-│   │   ├── google_scraper.py      # Google Careers adapter
-│   │   ├── microsoft_scraper.py   # Microsoft Careers adapter
-│   │   ├── meta_scraper.py        # Meta Careers adapter
-│   │   ├── netflix_scraper.py     # Netflix Careers adapter
-│   │   ├── uber_scraper.py        # Uber Careers adapter
-│   │   └── rubrik_scraper.py      # Rubrik Careers adapter
-│   ├── media/logos/               # Company SVG assets
-│   └── sites/                     # Monitored URLs (links.txt, new_links.txt)
+├── RULES.md                        # Project engineering standards & doc conventions
+├── PROGRESS.md                     # Roadmap, phase progress & milestone tracking
+├── README.md                       # Project overview & documentation
+├── start.sh                        # Unified development starter script
 │
-├── frontend/                      # Next.js 16 Web Application
+├── backend/                        # FastAPI REST API & Ingestion Pipeline
+│   ├── main.py                     # API router, CORS & endpoint definitions
+│   ├── database.py                 # SQLite schema, indexing & deduplication
+│   ├── worker.py                   # Periodic background scraper daemon
+│   ├── filters.py                  # Cursor-based pagination & query filtering
+│   ├── cache.py                    # In-memory query caching layer
+│   ├── resume_analyzer.py          # PyPDF text extraction & skill analysis
+│   ├── requirements.txt            # Python backend dependencies
+│   ├── scrapers/                   # Modular company scrapers
+│   │   ├── base.py                 # Base scraper interface & search filters
+│   │   ├── amazon_scraper.py       # Amazon Jobs adapter
+│   │   ├── google_scraper.py       # Google Careers adapter
+│   │   ├── microsoft_scraper.py    # Microsoft Careers adapter
+│   │   ├── meta_scraper.py         # Meta Careers adapter
+│   │   ├── netflix_scraper.py      # Netflix Careers adapter
+│   │   ├── uber_scraper.py         # Uber Careers adapter
+│   │   └── rubrik_scraper.py       # Rubrik Careers adapter
+│   ├── media/logos/                # Company SVG/PNG assets
+│   └── sites/                      # Monitored URLs (links.txt, new_links.txt)
+│
+├── frontend/                       # Next.js 16 Web Application
 │   ├── src/
-│   │   ├── app/                   # App Router pages (dashboard, admin, profile, etc.)
-│   │   ├── components/            # Reusable UI components & dialogs
-│   │   ├── context/               # Preferences & Auth Context
-│   │   ├── lib/                   # API client & match-scoring utilities
-│   │   └── types/                 # Strict TypeScript data contracts
-│   ├── public/                    # Static assets & SVG icons
-│   ├── package.json               # Frontend dependencies & scripts
-│   └── tsconfig.json              # TypeScript configuration
+│   │   ├── app/                    # App Router pages (dashboard, admin, history, profile)
+│   │   ├── components/             # Reusable UI components & dialogs
+│   │   ├── context/                # Preferences & Auth Context
+│   │   ├── lib/                    # API client, logo & match-scoring utilities
+│   │   └── types/                  # Strict TypeScript data contracts
+│   ├── public/                     # Static assets & SVG icons
+│   ├── package.json                # Frontend dependencies & scripts
+│   └── tsconfig.json               # TypeScript configuration
 │
-├── docs/                          # Project Documentation & Assets
-│   ├── ARCHITECTURE.md            # In-depth architectural specification
-│   ├── ARCHITECTURE.puml          # PlantUML system architecture diagram
-│   ├── backend_requirements.md    # Frontend/Backend interface spec
-│   └── screenshots/               # Application screenshots
+├── docs/                           # Project Documentation & Assets
+│   ├── ARCHITECTURE.md             # In-depth architectural specification
+│   ├── ARCHITECTURE_DIAGRAM.md     # Clean Mermaid system architecture diagrams
+│   ├── ARCHITECTURE.puml           # PlantUML system architecture diagram
+│   ├── screenshots/                # Application screenshots
+│   └── history/                    # Historical notes & previous iteration files
+│       ├── README.md               # Summary of archived documents
+│       ├── backend_requirements_v1.md # Initial v1 frontend handoff spec
+│       ├── scraper_onboarding_prompt.md # Reverse-engineering LLM prompt
+│       └── scraper_pipeline_notes.md # Early developer notes & TODOs
 │
-├── .env.example                   # Environment variable template
-├── .gitignore                     # Git ignore rules (Python, Node, DB, caches)
-├── pnpm-workspace.yaml            # PNPM monorepo workspace configuration
-├── README.md                      # Project overview & documentation
-└── start.sh                       # Unified development starter script
+├── .env.example                    # Environment variable template
+├── .gitignore                      # Git ignore rules (Python, Node, DB, caches)
+└── pnpm-workspace.yaml             # PNPM monorepo workspace configuration
 ```
 
 ---

@@ -264,7 +264,7 @@ class AmazonJobsScraper(BaseScraper):
 
         return NormalizedJob(
             title             = item.get("title") or "Untitled",
-            company_name      = item.get("company_name") or "Amazon",
+            company_name      = "Amazon",
             company_domain    = "amazon.jobs",
             apply_url         = apply_url,
             sources           = [JobSource(

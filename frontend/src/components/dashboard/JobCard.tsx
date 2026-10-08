@@ -18,6 +18,7 @@ import { JobPosting } from '@/types/job';
 import { usePreferences } from '@/context/PreferencesContext';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { getCompanyLogo, getCanonicalCompanyName } from '@/lib/companyLogo';
 
 interface JobCardProps {
   job: JobPosting;
@@ -81,7 +82,8 @@ export function JobCard({ job }: JobCardProps) {
   };
 
   const postedInfo = formattedPostedTime();
-  const compLogo = `/logos/${job.company.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.svg`;
+  const compLogo = getCompanyLogo(job.company.name, job.company.domain, job.company.logoUrl);
+  const canonicalName = getCanonicalCompanyName(job.company.name, job.company.domain);
   const matchedSkillsSet = new Set((job.matchedResumeSkills || []).map((s) => s.toLowerCase()));
 
   // Resume Match Badge Styling (Requirement 7)
@@ -133,14 +135,21 @@ export function JobCard({ job }: JobCardProps) {
             {/* Left Info */}
             <div className="flex items-start gap-4 flex-1 min-w-0">
               {/* Company Logo Image */}
-              <div className="w-16 h-16 rounded-2xl bg-secondary/80 border border-border flex items-center justify-center p-3 shrink-0 shadow-sm overflow-hidden group-hover:scale-105 transition-transform">
+              <div className="w-16 h-16 rounded-2xl bg-secondary/80 border border-border flex items-center justify-center p-2.5 shrink-0 shadow-sm overflow-hidden group-hover:scale-105 transition-transform">
                 <img
                   src={compLogo}
-                  alt={job.company.name}
+                  alt={canonicalName}
                   className="w-full h-full object-contain"
                   onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                    e.currentTarget.parentElement!.innerHTML = `<span class="text-2xl font-black text-violet-600">${job.company.name.charAt(0)}</span>`;
+                    const target = e.currentTarget;
+                    if (target.src.endsWith('.png')) {
+                      target.src = target.src.replace(/\.png$/, '.svg');
+                    } else {
+                      target.style.display = 'none';
+                      if (target.parentElement) {
+                        target.parentElement.innerHTML = `<span class="text-2xl font-black text-violet-600">${canonicalName.charAt(0)}</span>`;
+                      }
+                    }
                   }}
                 />
               </div>
@@ -171,7 +180,7 @@ export function JobCard({ job }: JobCardProps) {
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:text-base text-muted-foreground font-semibold">
                   <span className="font-extrabold text-foreground flex items-center gap-1.5">
                     <Building2 className="w-4 h-4 text-violet-500" />
-                    {job.company.name}
+                    {canonicalName}
                   </span>
 
                   <span className="flex items-center gap-1.5 font-medium">

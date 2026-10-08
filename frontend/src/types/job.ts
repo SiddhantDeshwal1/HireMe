@@ -211,3 +211,17 @@ export interface ResumeAnalysisResult {
   profile: UserProfileDashboard;
 }
 
+export interface JobApplication {
+  id: string;
+  username: string;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  company_logo_url: string;
+  apply_url: string;
+  status: 'applied' | 'not_applied' | 'interviewing' | 'rejected' | 'offered';
+  applied_at: string;
+  notes?: string;
+}
+
+

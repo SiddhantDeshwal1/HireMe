@@ -28,6 +28,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { setPendingApplication } from '@/lib/api';
+import { getCompanyLogo, getCanonicalCompanyName } from '@/lib/companyLogo';
 
 interface JobDetailsSheetProps {
   job: JobPosting | null;
@@ -42,6 +44,9 @@ export function JobDetailsSheet({ job, isOpen, onClose }: JobDetailsSheetProps) 
   const [isCopied, setIsCopied] = useState(false);
 
   if (!job) return null;
+
+  const compLogo = getCompanyLogo(job.company.name, job.company.domain, job.company.logoUrl);
+  const canonicalName = getCanonicalCompanyName(job.company.name, job.company.domain);
 
   const saved = isJobSaved(job.id);
   const reported = isJobReported(job.id);
@@ -124,13 +129,28 @@ export function JobDetailsSheet({ job, isOpen, onClose }: JobDetailsSheetProps) 
         <SheetHeader className="p-6 border-b border-border/60 bg-secondary/30 shrink-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-violet-950/60 border border-violet-500/30 flex items-center justify-center font-bold text-violet-300 text-xl shadow-inner">
-                {job.company.name.charAt(0)}
+              <div className="w-14 h-14 rounded-2xl bg-secondary/80 border border-border flex items-center justify-center p-2.5 shrink-0 shadow-sm overflow-hidden">
+                <img
+                  src={compLogo}
+                  alt={canonicalName}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (target.src.endsWith('.png')) {
+                      target.src = target.src.replace(/\.png$/, '.svg');
+                    } else {
+                      target.style.display = 'none';
+                      if (target.parentElement) {
+                        target.parentElement.innerHTML = `<span class="text-xl font-black text-violet-600">${canonicalName.charAt(0)}</span>`;
+                      }
+                    }
+                  }}
+                />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm text-foreground">
-                    {job.company.name}
+                    {canonicalName}
                   </span>
                   {job.company.isVerified && (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
@@ -400,6 +420,17 @@ export function JobDetailsSheet({ job, isOpen, onClose }: JobDetailsSheetProps) 
             href={job.applyUrl}
             target="_blank"
             rel="noreferrer"
+            onClick={() => {
+              if (job) {
+                setPendingApplication({
+                  jobId: job.id,
+                  jobTitle: job.title,
+                  companyName: job.company.name,
+                  companyLogoUrl: job.company.logoUrl,
+                  applyUrl: job.applyUrl,
+                });
+              }
+            }}
             className="flex-1 sm:flex-initial"
           >
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>

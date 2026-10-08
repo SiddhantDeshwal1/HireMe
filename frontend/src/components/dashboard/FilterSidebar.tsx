@@ -18,12 +18,13 @@ import { CompanyOption, ExperienceLevel, JobFilters, JobType, WorkSetup } from '
 import { fetchCompanies } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { getCompanyLogo, getCanonicalCompanyName } from '@/lib/companyLogo';
 
 interface FilterSidebarProps {
   filters: JobFilters;
   onChange: (updated: Partial<JobFilters>) => void;
   onReset: () => void;
-  onSyncPreferences: () => void;
+  onSyncPreferences?: () => void;
   duplicatesMergedCount: number;
   availableCompanies?: CompanyOption[];
 }
@@ -146,13 +147,13 @@ export function FilterSidebar({
         </Button>
       </div>
 
-      {/* Requirement 6: Match Based on Resume Toggle */}
+      {/* Match with Profile Toggle (Requirement 3) */}
       <div className="p-3.5 rounded-2xl bg-gradient-to-br from-violet-600/15 via-indigo-600/10 to-violet-600/10 border border-violet-500/35 space-y-2 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-violet-500" />
+            <Sparkles className="w-4 h-4 text-violet-500" />
             <span className="text-sm font-extrabold text-foreground">
-              Match My Resume
+              Match with Profile
             </span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -167,27 +168,10 @@ export function FilterSidebar({
         </div>
         <p className="text-xs font-medium text-muted-foreground leading-relaxed">
           {filters.matchResume
-            ? '🔥 Prioritizing roles matching your extracted resume skills.'
-            : 'Toggle on to re-rank jobs according to skills in your profile resume.'}
+            ? '🔥 Prioritizing roles matching your profile preferences and skills.'
+            : 'Toggle on to re-rank jobs according to your profile preferences & skills.'}
         </p>
       </div>
-
-      {/* Sync with Onboarding Button */}
-      <motion.button
-        type="button"
-        whileHover={{ scale: 1.01 }}
-        whileTap={{ scale: 0.99 }}
-        onClick={onSyncPreferences}
-        className="w-full p-3 rounded-2xl bg-secondary/80 border border-border text-foreground text-xs sm:text-sm font-bold flex items-center justify-between text-left hover:bg-secondary transition-all shadow-sm"
-      >
-        <span className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-violet-500" />
-          Sync Onboarding Criteria
-        </span>
-        <span className="text-xs uppercase font-mono px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-600 dark:text-violet-400 font-bold">
-          Sync
-        </span>
-      </motion.button>
 
       {/* Deduplication status alert */}
       {duplicatesMergedCount > 0 && (
@@ -232,7 +216,8 @@ export function FilterSidebar({
         <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
           {filteredCompanyList.map((comp) => {
             const isChecked = selectedCompanies.includes(comp.name);
-            const compLogo = `/logos/${comp.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.svg`;
+            const compLogo = getCompanyLogo(comp.name);
+            const canonicalName = getCanonicalCompanyName(comp.name);
             return (
               <label
                 key={comp.name}
@@ -252,14 +237,19 @@ export function FilterSidebar({
                   <div className="w-5 h-5 rounded-md bg-white p-0.5 shrink-0 flex items-center justify-center border border-border/40 overflow-hidden shadow-xs">
                     <img
                       src={compLogo}
-                      alt={comp.name}
+                      alt={canonicalName}
                       className="w-full h-full object-contain"
                       onError={(e) => {
-                        e.currentTarget.style.display = 'none';
+                        const target = e.currentTarget;
+                        if (target.src.endsWith('.png')) {
+                          target.src = target.src.replace(/\.png$/, '.svg');
+                        } else {
+                          target.style.display = 'none';
+                        }
                       }}
                     />
                   </div>
-                  <span className="truncate text-sm">{comp.name}</span>
+                  <span className="truncate text-sm">{canonicalName}</span>
                 </div>
                 <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-secondary text-muted-foreground shrink-0">
                   {comp.count}

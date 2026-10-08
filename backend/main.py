@@ -27,6 +27,9 @@ from database import (
     get_or_create_user_profile,
     update_user_profile,
     extract_skills_from_text,
+    record_job_application,
+    get_user_job_applications,
+    delete_job_application,
 )
 from cache import cache
 from resume_analyzer import analyze_resume_text, extract_text_from_pdf
@@ -330,6 +333,50 @@ async def save_job(job_id: str):
 async def unsave_job(job_id: str):
     _SAVED_JOBS.discard(job_id)
     return {"success": True, "savedJobIds": list(_SAVED_JOBS)}
+
+
+# ── Job Application Tracking & History (Requirement 5) ────────────────────────
+
+class JobApplicationRequest(BaseModel):
+    username: str = "admin"
+    jobId: str
+    jobTitle: str
+    companyName: str
+    companyLogoUrl: str | None = None
+    applyUrl: str
+    status: str = "applied"
+    notes: str | None = ""
+
+
+@app.get("/api/v1/user/applications")
+async def get_user_applications_endpoint(username: str = Query("admin")):
+    """Get all submitted job applications for the given user."""
+    applications = get_user_job_applications(username=username)
+    return {
+        "success": True,
+        "data": applications,
+        "total": len(applications),
+    }
+
+
+@app.post("/api/v1/user/applications", status_code=status.HTTP_201_CREATED)
+async def record_user_application_endpoint(payload: JobApplicationRequest):
+    """Record or update a user application status (applied / not_applied)."""
+    record = record_job_application(username=payload.username, data=payload.model_dump())
+    return {
+        "success": True,
+        "message": "Application logged in database.",
+        "application": record,
+    }
+
+
+@app.delete("/api/v1/user/applications/{app_id}")
+async def delete_user_application_endpoint(app_id: str, username: str = Query("admin")):
+    """Delete an application record from the history."""
+    deleted = delete_job_application(username=username, app_id=app_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Application record not found.")
+    return {"success": True, "message": "Application record removed."}
 
 
 # ── Profile Dashboard & Resume Match Engine (Requirements 2, 5, 8) ───────────

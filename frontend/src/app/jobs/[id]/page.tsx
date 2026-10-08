@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import { JobPosting } from '@/types/job';
 import { usePreferences } from '@/context/PreferencesContext';
-import { fetchJobById } from '@/lib/api';
+import { fetchJobById, setPendingApplication } from '@/lib/api';
+import { getCompanyLogo, getCanonicalCompanyName } from '@/lib/companyLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -168,7 +169,20 @@ export default function JobDetailPage() {
     toast.info('Report submitted. Our automated pipeline will verify this listing.');
   };
 
-  const compLogo = `/logos/${job.company.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.svg`;
+  const handleApplyClick = () => {
+    if (job) {
+      setPendingApplication({
+        jobId: job.id,
+        jobTitle: job.title,
+        companyName: job.company.name,
+        companyLogoUrl: job.company.logoUrl,
+        applyUrl: job.applyUrl,
+      });
+    }
+  };
+
+  const compLogo = getCompanyLogo(job.company.name, job.company.domain, job.company.logoUrl);
+  const canonicalName = getCanonicalCompanyName(job.company.name, job.company.domain);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
@@ -187,15 +201,21 @@ export default function JobDetailPage() {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6 pb-6 border-b border-border/60">
           <div className="flex items-start gap-4 flex-1">
             {/* Company Logo / Avatar */}
-            <div className="w-16 h-16 rounded-2xl bg-secondary/80 border border-border flex items-center justify-center p-2 shrink-0 shadow-sm overflow-hidden">
+            <div className="w-16 h-16 rounded-2xl bg-secondary/80 border border-border flex items-center justify-center p-2.5 shrink-0 shadow-sm overflow-hidden">
               <img
                 src={compLogo}
-                alt={job.company.name}
+                alt={canonicalName}
                 className="w-full h-full object-contain"
                 onError={(e) => {
-                  // Fallback letter if logo svg not available
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.parentElement!.innerHTML = `<span class="text-2xl font-bold text-violet-600">${job.company.name.charAt(0)}</span>`;
+                  const target = e.currentTarget;
+                  if (target.src.endsWith('.png')) {
+                    target.src = target.src.replace(/\.png$/, '.svg');
+                  } else {
+                    target.style.display = 'none';
+                    if (target.parentElement) {
+                      target.parentElement.innerHTML = `<span class="text-2xl font-bold text-violet-600">${canonicalName.charAt(0)}</span>`;
+                    }
+                  }
                 }}
               />
             </div>
@@ -204,7 +224,7 @@ export default function JobDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-base font-bold text-muted-foreground flex items-center gap-1.5">
                   <Building2 className="w-4 h-4 text-violet-500" />
-                  {job.company.name}
+                  {canonicalName}
                 </span>
                 {job.company.isVerified && (
                   <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 gap-1 font-bold">
@@ -252,6 +272,7 @@ export default function JobDetailPage() {
               href={job.applyUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handleApplyClick}
               className="w-full sm:w-auto"
             >
               <Button
@@ -390,6 +411,7 @@ export default function JobDetailPage() {
             href={job.applyUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleApplyClick}
             className="shrink-0"
           >
             <Button className="bg-violet-600 hover:bg-violet-500 text-white font-bold gap-2">

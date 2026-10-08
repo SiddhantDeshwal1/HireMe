@@ -4,9 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Bookmark, Compass, CheckCircle2, Activity } from 'lucide-react';
+import { Sparkles, Bookmark, Compass, Activity } from 'lucide-react';
 import { usePreferences } from '@/context/PreferencesContext';
-import { Button } from '@/components/ui/button';
 import { ProfileDropdown } from '@/components/layout/ProfileDropdown';
 import { fetchAdminScraperStatus } from '@/lib/api';
 
@@ -118,22 +117,8 @@ export function Navbar() {
           })}
         </nav>
 
-        {/* Right CTA & Circle Profile Dropdown */}
+        {/* Right Circle Profile Dropdown */}
         <div className="flex items-center gap-3">
-          <Link href="/onboarding" className="hidden sm:block">
-            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-              <Button
-                variant={pathname === '/onboarding' ? 'default' : 'outline'}
-                size="sm"
-                className="gap-2 text-xs font-semibold border-border/80 shadow-sm h-10"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-violet-500" />
-                <span>Onboarding Survey</span>
-              </Button>
-            </motion.div>
-          </Link>
-
-          {/* Profile Circle Avatar with Dropdown */}
           <ProfileDropdown />
         </div>
       </div>

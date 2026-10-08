@@ -16,6 +16,7 @@ import {
   ResumeAnalysisResult,
   UserPreferences,
   UserProfileDashboard,
+  JobApplication,
 } from '@/types/job';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
@@ -483,4 +484,172 @@ export async function addAdminCareerLink(url: string): Promise<{ success: boolea
     message: `Added ${url} to tracking links. Scraping initiated!`,
   };
 }
+
+// ── Application Tracking & Local Storage Pending Helpers (Requirement 5) ─────
+
+const PENDING_APP_KEY = 'hireme_pending_application';
+
+export interface PendingApplicationData {
+  jobId: string;
+  jobTitle: string;
+  companyName: string;
+  companyLogoUrl?: string | null;
+  applyUrl: string;
+  timestamp: number;
+}
+
+export function setPendingApplication(data: Omit<PendingApplicationData, 'timestamp'>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: PendingApplicationData = {
+      ...data,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(PENDING_APP_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('Failed to save pending application in localStorage:', e);
+  }
+}
+
+export function getPendingApplication(): PendingApplicationData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(PENDING_APP_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingApplicationData;
+    // Expire pending check after 2 hours
+    if (Date.now() - parsed.timestamp > 2 * 60 * 60 * 1000) {
+      clearPendingApplication();
+      return null;
+    }
+    return parsed;
+  } catch {
+    clearPendingApplication();
+    return null;
+  }
+}
+
+export function clearPendingApplication(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(PENDING_APP_KEY);
+  } catch {}
+}
+
+export async function recordJobApplication(payload: {
+  username?: string;
+  jobId: string;
+  jobTitle: string;
+  companyName: string;
+  companyLogoUrl?: string | null;
+  applyUrl: string;
+  status?: 'applied' | 'not_applied' | 'interviewing';
+  notes?: string;
+}): Promise<any> {
+  const user = payload.username || 'admin';
+  const reachable = await isBackendReachable();
+  if (reachable) {
+    try {
+      const res = await fetch(`${API_BASE}/user/applications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: user,
+          jobId: payload.jobId,
+          jobTitle: payload.jobTitle,
+          companyName: payload.companyName,
+          companyLogoUrl: payload.companyLogoUrl || '',
+          applyUrl: payload.applyUrl,
+          status: payload.status || 'applied',
+          notes: payload.notes || '',
+        }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to record job application on backend:', e);
+    }
+  }
+
+  // Local fallback
+  try {
+    const localKey = `hireme_applications_${user}`;
+    const raw = localStorage.getItem(localKey);
+    const existing: JobApplication[] = raw ? JSON.parse(raw) : [];
+    const newRecord: JobApplication = {
+      id: `app_${user}_${payload.jobId}`,
+      username: user,
+      job_id: payload.jobId,
+      job_title: payload.jobTitle,
+      company_name: payload.companyName,
+      company_logo_url: payload.companyLogoUrl || '',
+      apply_url: payload.applyUrl,
+      status: payload.status || 'applied',
+      applied_at: new Date().toISOString(),
+      notes: payload.notes || '',
+    };
+    const updated = [newRecord, ...existing.filter((a) => a.job_id !== payload.jobId)];
+    localStorage.setItem(localKey, JSON.stringify(updated));
+    return { success: true, application: newRecord };
+  } catch {
+    return { success: true };
+  }
+}
+
+export async function fetchJobApplications(username: string = 'admin'): Promise<JobApplication[]> {
+  const reachable = await isBackendReachable();
+  if (reachable) {
+    try {
+      const res = await fetch(`${API_BASE}/user/applications?username=${encodeURIComponent(username)}`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        return body.data || [];
+      }
+    } catch (e) {
+      console.warn('Failed to fetch job applications from backend:', e);
+    }
+  }
+
+  // Local fallback
+  try {
+    const raw = localStorage.getItem(`hireme_applications_${username}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteJobApplication(appId: string, username: string = 'admin'): Promise<boolean> {
+  const reachable = await isBackendReachable();
+  if (reachable) {
+    try {
+      const res = await fetch(`${API_BASE}/user/applications/${appId}?username=${encodeURIComponent(username)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to delete job application on backend:', e);
+    }
+  }
+
+  // Local fallback
+  try {
+    const localKey = `hireme_applications_${username}`;
+    const raw = localStorage.getItem(localKey);
+    if (raw) {
+      const existing: JobApplication[] = JSON.parse(raw);
+      const filtered = existing.filter((a) => a.id !== appId);
+      localStorage.setItem(localKey, JSON.stringify(filtered));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 

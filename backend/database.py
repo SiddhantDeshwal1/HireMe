@@ -123,7 +123,24 @@ def init_db() -> None:
             if col_name not in existing_cols:
                 conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {col_name} {col_type};")
 
+        # Job applications table (Requirement 5)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_applications (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                job_title TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                company_logo_url TEXT DEFAULT '',
+                apply_url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'applied',
+                applied_at TEXT NOT NULL,
+                notes TEXT DEFAULT ''
+            );
+        """)
+
         # Performance Indexes for fast multi-filter queries
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_apps_user ON job_applications(username, applied_at DESC);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_dedup ON jobs(dedup_key);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_name);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_work_setup ON jobs(work_setup);")
@@ -139,11 +156,49 @@ def init_db() -> None:
     log.info("SQLite database initialized at %s with WAL mode, mmap & 64MB cache", DB_PATH)
 
 
+def resolve_company_info(company_name: str, domain: str = "") -> tuple[str, str]:
+    """
+    Returns (canonical_name, logo_path).
+    Maps company names & subsidiaries to standard brand names and PNG assets.
+    """
+    comp_lower = (company_name or "").lower()
+    dom_lower = (domain or "").lower()
+
+    if any(k in comp_lower for k in ("amazon", "aws", "adci", "asspl", "adsipl", "annapurna", "pillpack", "souq")) or "amazon" in dom_lower:
+        return "Amazon", "/logos/amazon.png"
+    if "google" in comp_lower or "alphabet" in comp_lower or "google" in dom_lower:
+        return "Google", "/logos/google.png"
+    if "microsoft" in comp_lower or "microsoft" in dom_lower:
+        return "Microsoft", "/logos/microsoft.png"
+    if "netflix" in comp_lower or "netflix" in dom_lower:
+        return "Netflix", "/logos/netflix.png"
+    if "rubrik" in comp_lower or "rubrik" in dom_lower:
+        return "Rubrik", "/logos/rubrik.png"
+    if "uber" in comp_lower or "uber" in dom_lower:
+        return "Uber", "/logos/uber.png"
+    if "meta" in comp_lower or "facebook" in comp_lower or "metacareers" in dom_lower:
+        return "Meta", "/logos/meta.png"
+    if "figma" in comp_lower:
+        return "Figma", "/logos/figma.png"
+    if "stripe" in comp_lower:
+        return "Stripe", "/logos/stripe.png"
+    if "linear" in comp_lower:
+        return "Linear", "/logos/linear.png"
+    if "supabase" in comp_lower:
+        return "Supabase", "/logos/supabase.png"
+    if "vercel" in comp_lower:
+        return "Vercel", "/logos/vercel.png"
+
+    clean = re.sub(r"[^a-z0-9]", "", comp_lower) or "company"
+    return company_name or "Company", f"/logos/{clean}.png"
+
+
 def upsert_job(job: NormalizedJob, ttl_days: int = 5) -> bool:
     """Insert or update a job with a 5-day TTL."""
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(days=ttl_days)).isoformat()
     now_iso = now.isoformat()
+    canonical_company, logo_url = resolve_company_info(job.company_name, job.company_domain)
 
     with get_connection() as conn:
         cursor = conn.execute(
@@ -191,10 +246,10 @@ def upsert_job(job: NormalizedJob, ttl_days: int = 5) -> bool:
             job.id,
             job.slug,
             job.title,
-            job.company_name,
+            canonical_company,
             job.company_domain,
-            f"comp-{job.company_name.lower().replace(' ', '-')}",
-            f"/logos/{job.company_name.lower().replace(' ', '')}.svg",
+            f"comp-{canonical_company.lower().replace(' ', '-')}",
+            logo_url,
             job.city,
             job.state,
             job.country,
@@ -235,8 +290,7 @@ def upsert_jobs(jobs: list[NormalizedJob], ttl_days: int = 5) -> int:
 def row_to_dict(row: sqlite3.Row, resume_skills: list[str] | None = None) -> dict[str, Any]:
     skills = json.loads(row["skills_json"] or "[]")
     sources = json.loads(row["sources_json"] or "[]")
-    comp_clean = row["company_name"].lower().replace(" ", "").replace(".", "")
-    logo_url = f"/logos/{comp_clean}.svg"
+    canonical_company, logo_url = resolve_company_info(row["company_name"], row["company_domain"])
 
     # Compute resume match level if resume skills provided
     resume_score = 0
@@ -270,8 +324,8 @@ def row_to_dict(row: sqlite3.Row, resume_skills: list[str] | None = None) -> dic
         "slug": row["slug"],
         "title": row["title"],
         "company": {
-            "id": row["company_id"] or f"comp-{comp_clean}",
-            "name": row["company_name"],
+            "id": row["company_id"] or f"comp-{canonical_company.lower().replace(' ', '-')}",
+            "name": canonical_company,
             "logoUrl": logo_url,
             "websiteUrl": f"https://{row['company_domain']}",
             "isVerified": True,
@@ -657,4 +711,56 @@ def extract_skills_from_text(text: str) -> list[str]:
             found.append(name)
 
     return found
+
+
+def record_job_application(username: str, data: dict[str, Any]) -> dict[str, Any]:
+    """Record or update a user job application."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    app_id = f"app_{username}_{data.get('jobId', '')}"
+    status = data.get("status", "applied")
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO job_applications (
+                id, username, job_id, job_title, company_name, company_logo_url, apply_url, status, applied_at, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status = excluded.status,
+                applied_at = excluded.applied_at,
+                notes = excluded.notes;
+        """, (
+            app_id,
+            username,
+            data.get("jobId", ""),
+            data.get("jobTitle", "Untitled Role"),
+            data.get("companyName", "Unknown"),
+            data.get("companyLogoUrl", ""),
+            data.get("applyUrl", ""),
+            status,
+            now_iso,
+            data.get("notes", ""),
+        ))
+        conn.commit()
+        row = conn.execute("SELECT * FROM job_applications WHERE id = ?", (app_id,)).fetchone()
+        return dict(row) if row else {}
+
+
+def get_user_job_applications(username: str) -> list[dict[str, Any]]:
+    """Retrieve all job applications submitted by the user."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM job_applications WHERE username = ? ORDER BY applied_at DESC",
+            (username,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_job_application(username: str, app_id: str) -> bool:
+    """Delete a job application from history."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM job_applications WHERE id = ? AND username = ?",
+            (app_id, username)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 

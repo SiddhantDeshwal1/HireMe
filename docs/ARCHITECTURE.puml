@@ -36,119 +36,104 @@ skinparam note {
   FontColor #d8b4fe
 }
 
-title HireMe — Full System Architecture
+title HireMe — System Architecture v2.0
 
 ' ── Actors ─────────────────────────────────────────────────────
-actor "User\n(Browser)" as USER #8b5cf6
+actor "User\n(Candidate/Admin)" as USER #8b5cf6
 
 ' ── Frontend ─────────────────────────────────────────────────────
-package "Next.js Frontend  (port 3000)" as FE {
-  component "dashboard/page.tsx\n[Job Feed + Filters]" as DASH
-  component "lib/api.ts\n[HTTP Client]" as APICLIENT
+package "Next.js Frontend (Port 3000)" as FE {
+  component "dashboard/page.tsx\n[Curated Feed & Filters]" as DASH
+  component "admin/page.tsx\n[Crawler Telemetry & Control]" as ADMINUI
+  component "history/page.tsx\n[Application Tracker]" as HISTUI
+  component "profile/page.tsx\n[Profile & Resume Upload]" as PROFUI
+  component "lib/api.ts\n[REST Client]" as APICLIENT
   component "lib/matchScore.ts\n[Client-side Scoring]" as SCORE
-  component "context/\nPreferencesContext\n[localStorage]" as CTX
-  component "components/dashboard/\nJobCard · FilterSidebar\nJobDetailsSheet" as UICOMP
+  component "context/PreferencesContext\n[localStorage & Sync]" as CTX
+  component "components/dashboard/\nJobCard · FilterSidebar\nJobDetailsSheet · AppliedConfirmModal" as UICOMP
 }
 
 ' ── Backend ─────────────────────────────────────────────────────
-package "FastAPI Backend  (port 8000)" as BE {
-  component "main.py\n[REST Endpoints]" as MAIN
-  component "worker.py\nperiodic_worker()\nscrape_all()" as WORKER
-  component "filters.py\napply_filters()\nsort_jobs()\npaginate_cursor()" as FILTERS
-  database "JobStore\n(in-memory dict)" as STORE
+package "FastAPI Backend (Port 8000)" as BE {
+  component "main.py\n[REST Endpoints & Routing]" as MAIN
+  component "worker.py\nperiodic_worker()\nscrape_all_sites()" as WORKER
+  component "filters.py\nsearch_jobs_from_db()\nCursor & Offset Paging" as FILTERS
+  component "resume_analyzer.py\nPyPDF + Skill Extractor" as RESUME
+  component "cache.py\n[In-Memory TTL Cache]" as CACHE
+  database "SQLite Database (WAL Mode)\njobs · user_profiles\njob_applications · dead_reports" as SQLITEDB
 }
 
 ' ── Scraper Layer ─────────────────────────────────────────────────
-package "Scraper Registry  (scrapers/)" as SCRAPERS {
+package "Scraper Registry (backend/scrapers/)" as SCRAPERS {
   component "BaseScraper ABC\n+ SearchFilters" as BASE
   component "AmazonJobsScraper\ncurl_cffi chrome120" as AMAZON
-  component "[Future]\nLinkedIn · GH · Lever\nIndeed · Workday" as FUTURE
+  component "GoogleCareersScraper\ncurl_cffi chrome120" as GOOGLE
+  component "MicrosoftCareersScraper\ncurl_cffi chrome120" as MSFT
+  component "MetaCareersScraper\ncurl_cffi chrome120" as META
+  component "NetflixCareersScraper\ncurl_cffi chrome120" as NETFLIX
+  component "UberCareersScraper\ncurl_cffi chrome120" as UBER
+  component "RubrikCareersScraper\ncurl_cffi chrome120" as RUBRIK
 }
 
-' ── Link Management ─────────────────────────────────────────────
-package "Site Registry  (sites/)" as SITES {
-  database "links.txt\n[Active sites]" as LINKS
-  database "new_links.txt\n[Pending onboarding]" as NEWLINKS
-  component "scraper_onboarding_\nprompt.md\n[LLM System Prompt]" as ONBOARD
+' ── Link Registry ────────────────────────────────────────────────
+package "Site Registry (backend/sites/)" as SITES {
+  database "links.txt\n[Active Crawled Portals]" as LINKS
+  database "new_links.txt\n[Pending Review]" as NEWLINKS
 }
 
 ' ── External ─────────────────────────────────────────────────────
-package "External Career Sites" as EXT {
-  component "amazon.jobs\n/en-gb/search.json" as AMZWEB
-  component "LinkedIn Jobs API" as LIWEB
-  component "ATS Boards\n(Greenhouse/Lever)" as ATSWEB
+package "Target Career Sites" as EXT {
+  component "amazon.jobs" as AMZWEB
+  component "careers.google.com" as GOOGWEB
+  component "apply.careers.microsoft.com" as MSFTWEB
+  component "metacareers.com" as METAWEB
+  component "jobs.netflix.net" as NFLXWEB
+  component "jobs.uber.com" as UBERWEB
+  component "rubrik.com/careers" as RUBRIKWEB
 }
 
 ' ── Flows ─────────────────────────────────────────────────────
+USER --> DASH : "Searches & filters jobs"
+USER --> ADMINUI : "Monitors crawlers & triggers scrape"
+USER --> HISTUI : "Tracks application status"
+USER --> PROFUI : "Uploads resume (PDF/TXT)"
 
-' User → Frontend
-USER --> DASH : "Browses dashboard\n+ applies filters"
-DASH --> CTX  : "reads preferences"
+DASH --> CTX : "reads preferences"
 DASH --> APICLIENT : "fetchJobs(filters)"
-APICLIENT --> SCORE : "score jobs"
-APICLIENT --> UICOMP : "renders JobCards"
+DASH --> SCORE : "computes match %"
+ADMINUI --> APICLIENT : "crawler status & trigger"
+HISTUI --> APICLIENT : "get/update applications"
+PROFUI --> APICLIENT : "uploadResumeFile()"
 
-' Frontend → Backend
-APICLIENT -down-> MAIN : "GET /api/v1/jobs\n?live_scrape=true\n&q=...&work_setup=..."
+APICLIENT -down-> MAIN : "REST API Calls (JSON)"
 
-' Backend routing
-MAIN -right-> FILTERS : "apply_filters()\nsort_jobs()"
-MAIN -down-> WORKER : "scrape_all(filters)\n[on live_scrape=true]"
-MAIN <--> STORE : "read / write"
-FILTERS <--> STORE : "get_all()"
-WORKER --> STORE : "upsert(jobs)\n+deduplication"
+MAIN -right-> FILTERS : "query jobs"
+MAIN -down-> RESUME : "parse PDF text & skills"
+MAIN -down-> CACHE : "check / invalidate cache"
+MAIN -down-> SQLITEDB : "CRUD operations"
+FILTERS <--> SQLITEDB : "indexed seeks & pagination"
 
-' Periodic worker
-WORKER -left-> LINKS : "read_links()"
+ADMINUI ..> WORKER : "manual trigger"
+WORKER -left-> LINKS : "read active URLs"
+WORKER -down-> BASE : "dispatch scraping"
 
-' Scraper dispatch
-WORKER -down-> BASE : "get_scraper_for_url(url)"
 BASE <|-- AMAZON
-BASE <|-- FUTURE
+BASE <|-- GOOGLE
+BASE <|-- MSFT
+BASE <|-- META
+BASE <|-- NETFLIX
+BASE <|-- UBER
+BASE <|-- RUBRIK
 
-' External calls
-AMAZON -down-> AMZWEB : "GET /en-gb/search.json\nX-CSRF-Token\ncurl_cffi chrome120\n[TLS fingerprint spoof]"
-FUTURE -down-> LIWEB
-FUTURE -down-> ATSWEB
+AMAZON -down-> AMZWEB : "TLS impersonation (chrome120)"
+GOOGLE -down-> GOOGWEB
+MSFT -down-> MSFTWEB
+META -down-> METAWEB
+NETFLIX -down-> NFLXWEB
+UBER -down-> UBERWEB
+RUBRIK -down-> RUBRIKWEB
 
-' Onboarding
-NEWLINKS --> ONBOARD : "URL needs\nadapter"
-ONBOARD -right-> AMAZON : "LLM writes\nBaseScraper impl"
-ONBOARD ..> LINKS : "URL moved\nafter test ✓"
-
-' ── Notes ─────────────────────────────────────────────────────
-
-note right of AMAZON
-  **WAF Bypass Technique**
-  1. GET /en-gb/search
-     → session cookies
-     → CSRF token extraction
-     → category map from React props
-  2. GET /en-gb/search.json
-     Headers: X-CSRF-Token, X-Requested-With
-     Params: job_category[], country[], offset
-end note
-
-note right of STORE
-  **Deduplication**
-  Key = normalize(company) + normalize(title)
-  Window = 48 hours
-  On match: merge sources[] arrays
-end note
-
-note bottom of WORKER
-  **Periodic Worker**
-  Runs every 300 seconds (5 min)
-  Also triggers immediately on
-  live_scrape=true from API
-end note
-
-note left of CTX
-  **User Profile**
-  Stored in localStorage (no auth yet)
-  Preferences: roles, skills, salary,
-  work setup, experience level
-  Match score computed client-side
-end note
+BASE --> SQLITEDB : "upsert_jobs() + 48h fuzzy dedup"
+SQLITEDB ..> CACHE : "cache invalidation on write"
 
 @enduml

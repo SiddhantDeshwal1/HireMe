@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   User,
-  SlidersHorizontal,
+  History,
   Bookmark,
   LogOut,
   Sparkles,
@@ -214,17 +214,22 @@ export function ProfileDropdown() {
                 </button>
               )}
 
-              {/* Onboarding Survey Option */}
+              {/* Application History Option (Requirement 5) */}
               <button
                 type="button"
                 onClick={() => {
                   setIsOpen(false);
-                  router.push('/onboarding');
+                  router.push('/history');
                 }}
-                className="w-full flex items-center gap-2.5 p-3 rounded-2xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                className="w-full flex items-center justify-between p-3 rounded-2xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
               >
-                <SlidersHorizontal className="w-4 h-4 text-violet-500" />
-                <span>Onboarding Survey</span>
+                <span className="flex items-center gap-2.5">
+                  <History className="w-4 h-4 text-violet-500" />
+                  <span>Application History</span>
+                </span>
+                <span className="text-xs text-muted-foreground font-semibold">
+                  Tracked
+                </span>
               </button>
             </div>
 
